@@ -1,0 +1,14 @@
+*.pkl
+*.xlsx
+*.csv
+outputs/
+data/
+.ipynb_aml_checkpoints/
+.ipynb_checkpoints/
+.vscode/
+config.json
+logs/
+amlignore*
+*.amltmp
+.amlignore
+.backup
