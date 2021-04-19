@@ -11,4 +11,4 @@ logs/
 amlignore*
 *.amltmp
 .amlignore
-.backup
+*.backup
