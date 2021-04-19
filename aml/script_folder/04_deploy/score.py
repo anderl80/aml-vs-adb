@@ -27,22 +27,12 @@ def init():
     model = joblib.load(model_path + '/trump-tweet-classification.pkl')
     vec = joblib.load(model_path + '/vec.pkl')
 
-# # Called when a request is received
-# def run(raw_data):
-#     try:
-#         data = json.loads(raw_data)['data']
-#         X = vec.transform(data[0])
-#         res = json.dumps(dict(zip(model.classes_, model.predict_proba(X).flatten())))
-#     except:
-#         # if Standortwerk is not within model data, catch error
-#         res = json.dumps({})
-#     return res
-
 # Called when a request is received
 def run(raw_data):
-    data = json.loads(raw_data)['data']
-    print(data)
-    X = vec.transform([data[0]])
-    print(model.classes_)
-    res = json.dumps(dict(zip(model.classes_, model.predict_proba(X).flatten())))
+    try:
+        data = json.loads(raw_data)['data']
+        X = vec.transform([data[0]])
+        res = json.dumps(dict(zip(model.classes_, model.predict_proba(X).flatten())))
+    except:
+        res = json.dumps({})
     return res
