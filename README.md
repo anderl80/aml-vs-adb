@@ -1,4 +1,9 @@
-# Compare AML and ADB
+# MLOps
+
+- [What is MLOps?](https://docs.microsoft.com/en-us/azure/machine-learning/concept-model-management-and-deployment)
+- [MLOps on Azure](https://github.com/microsoft/MLOps)
+
+# MLOps with AML or ADB
 
 This repository compares an end-to-end ML pipeline in Azure Machine Learning and Azure Databricks.
 
