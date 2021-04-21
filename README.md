@@ -6,4 +6,6 @@ We'll use a text data classification ML approach to show how the pipelines could
 
 ## Deploy model
 
-Although Azure Databricks has MLFlow model serving (job cluster is spawn in background to host the model), deploying to AKS is recommended in production workflows, especially when high-performance/low-latency is required.
+Depending on the use-case, the latency requirements might vary. Azure Databricks is capable of not only hosting, but also serving a model using MLFlow model serving. This means that a job cluster is spawned in the background to host the model. For dev/test workloads MLFlow serving or ACI is the place to go. Deploying to AKS is recommended in production workflows, especially when high-performance/low-latency is required. AKS is the best choice in terms of latency, is more scalable, can be fine tuned and has better cost control,
+
+![Latencies](media/inferencing-latencies.png)
