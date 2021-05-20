@@ -17,52 +17,25 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install pandas==1.1.0 azureml-sdk
+# MAGIC %pip install pandas==1.2.4
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC 
-# MAGIC # Good to read:
+# MAGIC # Good to read
 # MAGIC 
 # MAGIC * http://steventhornton.ca/blog/hyperparameter-tuning-with-hyperopt-in-python.html
-# MAGIC * https://stackoverflow.com/questions/53579444/efficient-text-preprocessing-using-pyspark-clean-tokenize-stopwords-stemming
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC 
-# MAGIC # Prepare data
+# MAGIC # Read from Delta Table
 
 # COMMAND ----------
 
-from pyspark.ml.feature import StopWordsRemover
-from nltk.stem.snowball import SnowballStemmer
-from pyspark.sql.types import ArrayType, StringType
-from pyspark.sql.functions import regexp_replace, col, split, udf
-
-@udf(StringType())
-def concat_strings(col):
-  return " ".join(col)
-
-def transform_tweet_data():
-    # load
-    data = spark.read.csv("dbfs:/FileStore/tweets/trump_insult_tweets_2014_to_2021.csv", header=True)
-    # select
-    data = data.select(split("tweet", " ").alias("tweet"), "target").dropna()
-    # remove stopword
-    remover = StopWordsRemover(inputCol='tweet', outputCol='tweet_clean')
-    data = remover.transform(data)
-    # stem
-    stemmer = SnowballStemmer(language='english')
-    stemmer_udf = udf(lambda tokens: [stemmer.stem(token) for token in tokens], ArrayType(StringType()))
-    data = data.withColumn("tweet_stemmed", stemmer_udf("tweet_clean")).select('target', 'tweet_stemmed')
-    # clean
-    data = data.withColumn("tweet", regexp_replace(concat_strings("tweet_stemmed"), '"', "")).select("tweet", "target")
-    
-    return data
-
-data_pd = transform_tweet_data().toPandas()
+data = spark.read.table("trumptweets").toPandas() 
 
 # COMMAND ----------
 
@@ -72,8 +45,8 @@ data_pd = transform_tweet_data().toPandas()
 
 # COMMAND ----------
 
-train = data_pd.groupby('target').sample(frac = 0.8)
-test = data_pd.drop(train.index)
+train = data.groupby('target').sample(frac = 0.8, random_state=42)
+test = data.drop(train.index)
 
 # COMMAND ----------
 
@@ -133,27 +106,14 @@ with mlflow.start_run(run_name="RandomForestClassifier Hyperopt", nested=True):
     argmin = fmin(fn=objective,
                   space=search_space,
                   algo=tpe.suggest,
-                  max_evals=18,
+                  max_evals=6,
                   trials=SparkTrials(parallelism=6))
-
-# COMMAND ----------
-
-argmin
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC 
 # MAGIC # Train the model using the best parameters
-
-# COMMAND ----------
-
-argmin = {'max_df': 0.6,
- 'min_class_frequency': 50,
- 'min_df': 5,
- 'n_estimators': 100,
- 'ngram_max': 7,
- 'ngram_min': 3}
 
 # COMMAND ----------
 
@@ -205,23 +165,21 @@ with mlflow.start_run(run_name="RandomForestClassifier Best Parameter Pipeline")
 
 # COMMAND ----------
 
-data = ["The media is spreading fake news!"]
-import pandas as pd
-pipe.predict(pd.DataFrame(data, columns=['tweet']))
-
-# COMMAND ----------
-
 # MAGIC %md
 # MAGIC 
 # MAGIC # Use logged model
 
 # COMMAND ----------
 
-logged_model = 'runs:/{}/trump_tweets_pipe'.format(run.info.run_id)
-loaded_model = mlflow.pyfunc.load_model(logged_model)
-data = ["The media is spreading fake news!"]
-import pandas as pd
-loaded_model.predict(pd.DataFrame(data, columns=['tweet']))
+#data = ["The media is spreading fake news!"]
+#import pandas as pd
+#pipe.predict(pd.DataFrame(data, columns=['tweet']))
+
+#logged_model = 'runs:/{}/trump_tweets_pipe'.format(run.info.run_id)
+#loaded_model = mlflow.pyfunc.load_model(logged_model)
+#data = ["The media is spreading fake news!"]
+#import pandas as pd
+#loaded_model.predict(pd.DataFrame(data, columns=['tweet']))
 
 # COMMAND ----------
 
@@ -235,93 +193,3 @@ model_uri = "runs:/{}/trump_tweets_pipe".format(run.info.run_id)
 mv = mlflow.register_model(model_uri, "TrumpTweetsClassifier")
 print("Name: {}".format(mv.name))
 print("Version: {}".format(mv.version))
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC 
-# MAGIC # Deploy model for realtime inferencing on Azure ACI/AKS
-# MAGIC 
-# MAGIC AKS for production or MLFlow Model Serving for dev, too.
-
-# COMMAND ----------
-
-import mlflow.azureml
-from azureml.core import Workspace
-from azureml.core.webservice import AksWebservice, AciWebservice, Webservice
-from azureml.core.compute import AksCompute
-
-# Load or create an Azure ML Workspace
-workspace_name = "mlw-test"
-subscription_id = dbutils.secrets.get(scope="key-vault-secrets", key="sandbox-subscription-id")
-resource_group = "rg-ai-test"
-location = "westeurope"
-
-azure_workspace = Workspace.create(name=workspace_name,
-                                   subscription_id=subscription_id,
-                                   resource_group=resource_group,
-                                   location=location,
-                                   create_resource_group=True,
-                                   exist_ok=True)
-
-deploy_config = AksWebservice.deploy_configuration(cpu_cores = 2, memory_gb = 8, compute_target_name='trump-tweets-inf')
-
-# Create an Azure Container Instance webservice for an MLflow model
-azure_service, azure_model = mlflow.azureml.deploy(model_uri="runs:/{}/trump_tweets_pipe".format(run.info.run_id),
-                                                   service_name="trump-tweets-scoring-adb",
-                                                   deployment_config=deploy_config,
-                                                   workspace=azure_workspace,
-                                                   synchronous=True)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC 
-# MAGIC # Test endpoints
-
-# COMMAND ----------
-
-import pandas as pd
-sample_request = pd.DataFrame(["The media is spreading fake news!"], columns=["tweet"])
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC 
-# MAGIC ## Test ACI/AKS endpoint
-
-# COMMAND ----------
-
-import requests
-import json
- 
-def query_endpoint_example(scoring_uri, inputs, service_key=None):
-  headers = {
-    "Content-Type": "application/json",
-  }
-  if service_key is not None:
-    headers["Authorization"] = "Bearer {service_key}".format(service_key=service_key)
-    
-  print("Sending batch prediction request with inputs: {}".format(inputs))
-  response = requests.post(scoring_uri, data=json.dumps(inputs), headers=headers)
-  preds = json.loads(response.text)
-  print("Received response: {}".format(preds))
-  #return preds
-
-query_endpoint_example("http://20.76.44.123:80/api/v1/service/trump-tweets-scoring-adb/score",
-                       sample_request.to_dict(orient='split'),
-                       dbutils.secrets.get(scope="key-vault-secrets", key="trump-tweets-scoring-aml"))
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC 
-# MAGIC ## Test MLFLow model serving
-
-# COMMAND ----------
-
-pd.DataFrame.to_json(sample_request, orient='records')
-
-# COMMAND ----------
-
-
