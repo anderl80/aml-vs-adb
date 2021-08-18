@@ -1,10 +1,10 @@
 # Databricks notebook source
 # MAGIC %md
+# MAGIC # Useful things how to set up in hosted environments
 # MAGIC 
 # MAGIC - https://youtu.be/pq5CBea12v4
 # MAGIC - https://docs.greatexpectations.io/en/latest/guides/how_to_guides/configuring_data_contexts/how_to_instantiate_a_data_context_on_a_databricks_spark_cluster.html
 # MAGIC - https://docs.greatexpectations.io/en/latest/guides/how_to_guides/configuring_data_contexts/how_to_instantiate_a_data_context_without_a_yml_file.html
-# MAGIC - https://gitpython.readthedocs.io/en/stable/
 
 # COMMAND ----------
 
@@ -17,20 +17,19 @@ from great_expectations.data_context.types.base import DataContextConfig, Dataso
 from great_expectations.data_context.store.tuple_store_backend import TupleAzureBlobStoreBackend
 from great_expectations.data_context import BaseDataContext
 
-my_spark_datasource_config = DatasourceConfig(
-    class_name="SparkDFDatasource",
-    batch_kwargs_generators={
-        "subdir_reader": {
-            "class_name": "SubdirReaderBatchKwargsGenerator",
-            "base_directory": "/FileStore/tables/",
-        }
-    },
-)
-
 AZURE_STORAGE_CONNECTION_STRING = dbutils.secrets.get(scope="key-vault-secrets", key="gesuite-blob-storage-constring")
 
 data_context_config = DataContextConfig(
-    datasources={"dbw_test_datasource": my_spark_datasource_config},
+    datasources={"dbw_test_datasource": DatasourceConfig(
+        class_name="SparkDFDatasource",
+        batch_kwargs_generators={
+            "subdir_reader": {
+                "class_name": "SubdirReaderBatchKwargsGenerator",
+                "base_directory": "/FileStore/tweets/",
+            }
+        },
+    )
+               },
     stores={
           "expectations_store": {
               "class_name": "ExpectationsStore",
@@ -106,7 +105,9 @@ context = BaseDataContext(project_config=data_context_config)
 
 # COMMAND ----------
 
-context.list_datasources()
+import json
+
+print(json.dumps(context.list_datasources()[0], indent=4))
 
 # COMMAND ----------
 
@@ -119,18 +120,14 @@ from great_expectations.data_context import BaseDataContext
 
 file_location = "/FileStore/tweets/trump_insult_tweets_2014_to_2021.csv"
 file_type = "csv"
-
-# CSV options
 infer_schema = "true"
 first_row_is_header = "true"
 
-# The applied options are for CSV files. For other file types, these will be ignored.
 df = spark.read.format(file_type) \
     .option("inferSchema", infer_schema) \
     .option("header", first_row_is_header) \
     .load(file_location)
 
-# NOTE: project_config is a DataContextConfig set up as in the examples above.
 context.create_expectation_suite("trump-tweets-ge-test", overwrite_existing=True)
 
 my_batch = context.get_batch({
@@ -145,11 +142,30 @@ my_batch.head()
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC 
+# MAGIC # Profile data
+
+# COMMAND ----------
+
+import great_expectations as ge
+from great_expectations.profile.basic_dataset_profiler import BasicDatasetProfiler
+
+gf = ge.from_pandas(df.toPandas())
+expectation_suite, validation_result = BasicDatasetProfiler.profile(gf)
+#context.save_expectation_suite(expectation_suite, "my_profiled_expectations")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # Create Expectations
 
 # COMMAND ----------
 
-my_batch.expect_column_values_to_not_match_regex("tweet", '\"', mostly=0.95)
+my_batch.expect_column_values_to_not_match_regex("tweet", '\"', mostly=0.95, meta={"notes": "I don't like quotations marks."})
+
+# COMMAND ----------
+
+my_batch.expect_column_values_to_not_be_null("tweet", mostly=0.95)
 
 # COMMAND ----------
 
@@ -190,3 +206,7 @@ results = context.run_validation_operator(
 # COMMAND ----------
 
 context.build_data_docs()
+
+# COMMAND ----------
+
+
